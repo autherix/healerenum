@@ -1,0 +1,35 @@
+#!/usr/bin/env bash 
+
+rt="/ptv"
+hrt="${rt}/healer"
+source "${rt}/rtsetup"
+
+# Function separator
+function sep() {
+    echo "--------------------------------------------------------------------------------"
+}
+
+# Read from stdin, save it to variable domains
+domains=$(cat)
+
+# Remove duplicates from array
+domains=($(printf "%s\n" "${domains[@]}" | sort -u))
+
+# Loop through array and do sth on each line
+for i in "${domains[@]}"
+do
+    # If the first character of the line is "*" then print this line 
+    # Create a new array called wildcard_domains and add the wildcard domains to it (e.g. *.example.com) without the "*." at first 
+    if [[ $i == \*.* ]]; then
+        wildcard_domains+=("${i:2}")
+    fi
+done
+
+# echo the wildcard domains
+for i in "${wildcard_domains[@]}"
+do
+    # If $i is a vaild form domain then print it (e.g example.com)
+    if [[ $i =~ ^[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9]\.[a-zA-Z]{2,}$ ]]; then
+        echo "$i"
+    fi
+done

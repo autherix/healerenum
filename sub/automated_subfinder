@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+
+rt="/ptv"
+hrt="${rt}/healer"
+

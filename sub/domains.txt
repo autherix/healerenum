@@ -1,0 +1,17 @@
+*.instacart.tools
+*.instacart.com
+instacart.careers
+*.instacart.tools
+*.instacart.com
+instacart.careers
+*.instacart.tools
+*.instacart.com
+instacart.careers
+
+*.instacart.tools
+*.instacart.com
+instacart.careers
+*.instacart.tools
+*.instacart.com
+instacart.careers
+*..instacart.com
