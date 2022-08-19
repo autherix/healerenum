@@ -4,13 +4,55 @@ rt="/ptv"
 hrt="${rt}/healer"
 source "${rt}/rtsetup"
 
-# Function separator
-function sep() {
-    echo "--------------------------------------------------------------------------------"
+function help() {
+echo -e "wildscope - submodule of subenum - healerenum - healer - get url scopes in stdin, and print out the domains which are wildcard scopes (Pass to subenum modules)
+
+Usage:
+\techo <scope> | wildscope
+
+Examples:
+\tcat scope.txt | ./wildscope
+\t./inscopeurl -t semrush | ./wildscope
+"
 }
+# Parsing flags
+while [ -n "$1" ]; do
+    key="$1"
+    case "$key" in
+      -h|--help)
+        shift
+        help;
+        exit 0
+        ;;
+      --)
+        shift
+        break
+        ;;
+      -*|--*)
+        echo "Unknown option: $1"
+        sep
+        help
+        exit 1
+        ;;
+      *)
+        echo "Unknown option: $1"
+        sep
+        help
+        exit 1
+        ;;
+    esac
+done
 
 # Read from stdin, save it to variable domains
-domains=$(cat)
+domains=$(cat -)
+echo "domains: ${domains}"
+# If no domains, exit
+if [ -z "$domains" ]; then
+    echo "No domains given in stdin"
+    sep
+    help
+    exit 1
+fi
 
 # Remove duplicates from array
 domains=($(printf "%s\n" "${domains[@]}" | sort -u))

@@ -5,10 +5,10 @@ hrt="${rt}/healer"
 source "${rt}/rtsetup"
 
 help() {
-    echo -e "subenum - submodule of healerenum - healer - get scopes, process them, find wildcard scopes and run sub enumerations on them
+    echo -e "inscopeurl - submodule of subenum - healerenum - healer - get scopes, process them, find wildcard scopes and run sub enumerations on them
 
 Usage:
-\tsubenum -t|--target <targetname> [options]
+\tinscopeurl -t|--target <targetname> [options]
 
 Options:
 \t-t|--target\t*(Required)*\tTarget Name
@@ -16,8 +16,8 @@ Options:
 \t--eligible\t\t\tResolve only eligible URL assets
 
 Examples:
-\tsubenum -t semrush --eligible\tFinds all eligible-for-bounty URL scopes for target called semrush
-\tsubenum -t elastic\t\tFinds all in-scopes for target called elastic (as json | jq)
+\tinscopeurl -t semrush --eligible\tFinds all eligible-for-bounty URL scopes for target called semrush
+\tinscopeurl -t elastic\t\tFinds all in-scopes for target called elastic (as json | jq)
 "
 }
 
@@ -68,19 +68,14 @@ done
 # Check if $tgtname exists, if not exit with error message saying "No target name given", if it does, set tgtname cto $tgtname
 if [ -z "$tgtname" ]; then
     echo "No target name given"
+    sep
+    help
     exit 1
 else
     tgtname=$tgtname
 fi
 
 ### Fetch Scopes
-
-# Check whether the subfinder command is available.
-if ! command -v subfinder >/dev/null 2>&1; then
-    echo "subfinder is not installed. Please install it first."
-    echo "exiting..."
-    exit 1
-fi
 
 # Run scoper on the given target name ($tgtname) and save it on a variable called url_scope.
 # If eligible_url is 1, then only print the scopes that are eligible for the target name.
@@ -95,5 +90,5 @@ if [ $? -ne 0 ]; then
     seterror "Error while running scoper"
 fi
 
-echo "${url_scope}" | ./wildscope
+echo "${url_scope}"
 

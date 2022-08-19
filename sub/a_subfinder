@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+
+rt="/ptv"
+hrt="${rt}/healer"
+source ${rt}/rtsetup
+
+function help() {
+echo -e "a_subfinder - Finds all subdomains of a domain by automating the subfinder tool.
+
+Usage:
+\ta_subfinder 
+"
+}
+
+# Run subfinder against a domain
+function subfinder() {
+    domain=$1
+    echo -e "Running subfinder against ${domain}..."
+    subfinder -d ${domain} -o ${hrt}/subfinder/${domain} -t 100
+    echo -e "Done."
+}

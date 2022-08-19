@@ -6,7 +6,7 @@ source ${hrt}/healerenum/sub/mod-scoper/creds
 source ${rt}/rtsetup
 
 help() {
-    echo -e "Scoper - subenum module - healerenum - fetch target scopes from h1
+    echo -e "Scoper - submodule of subenum - healerenum - fetch target scopes from h1
 Usage:
 \tscoper -t|--target <targetname> [options]
 
@@ -15,11 +15,13 @@ Options:
 \t-h|--help\t\t\tShow this help message and exit
 \t--eligible\t\t\tShow only eligible URL assets
 \t--url\t\t\t\tShow only eligible URL assets
+\t--out-of-scope\t\t\tShow only out-of-scope URL assets
 
 Examples:
 scoper -t semrush --eligible --url\tFinds all eligible URL scopes for target called semrush
 scoper -t elastic\t\t\tFinds all scopes for target called elastic (as json | jq)
 scoper -t elastic --url\t\t\tFinds all URL scopes for target called elastic (as json | jq)
+scoper -t elastic --out-of-scope\tFinds all out-of-scope URL scopes for target called elastic (as json | jq)
 "
 }
 
@@ -110,7 +112,7 @@ else
         tgt_asset_type_count=$(echo "${tgt_asset_type}" | wc -l)
 
         # for 1 to tgt_asset_type_count, echo the i(th) element of tgt_asset_type to the screen remove the quotes
-        # Define an array called eligible_url_assets
+        # Define an empty array called url_assets
         url_assets=()
         for ((i=1; i<=${tgt_asset_type_count}; i++)); do
             this_eligible_for_submission=$(echo "${tgt_eligible_for_submission}" | sed -n "${i}p" | sed 's/"//  g')
@@ -120,12 +122,17 @@ else
                 this_asset_identifier=$(echo "${tgt_asset_identifier}" | sed -n "${i}p" | sed 's/"//  g')
                 # If this_asset_type is "URL", append this_asset_identifier to the url_assets array
                 if [ "${this_asset_type}" == "URL" ]; then
-                  url_assets+=("${this_asset_identifier}")
+                    # If this_asset_identifier is not in the url_assets array, append it to the url_assets array
+                    if [[ ! " ${url_assets[@]} " =~ " ${this_asset_identifier} " ]]; then
+                        url_assets+=("${this_asset_identifier}")
+                    fi
                 fi
-                for thisurl in "${url_assets[@]}"; do
-                    echo "${thisurl}"
-                done
             fi
+        done
+        # Echo all the elements of the url_assets array to the screen each on a new line
+        for i in "${url_assets[@]}"
+        do
+            echo $i
         done
 
         # If error code is 1, exit with error message and error code.
