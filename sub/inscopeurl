@@ -2,7 +2,7 @@
 
 rt="/ptv"
 hrt="${rt}/healer"
-source "${rt}/rtsetup"
+source "${rt}/rtsetup.sh"
 
 help() {
     echo -e "inscopeurl - submodule of subenum - healerenum - healer - get scopes, process them, find wildcard scopes and run sub enumerations on them

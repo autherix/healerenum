@@ -2,7 +2,7 @@
 
 rt="/ptv"
 hrt="${rt}/healer"
-source ${rt}/rtsetup
+source ${rt}/rtsetup.sh
 
 function help() {
 echo -e "a_subfinder - Finds all subdomains of a domain by automating the subfinder tool.

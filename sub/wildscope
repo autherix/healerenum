@@ -2,7 +2,7 @@
 
 rt="/ptv"
 hrt="${rt}/healer"
-source "${rt}/rtsetup"
+source "${rt}/rtsetup.sh"
 
 function help() {
 echo -e "wildscope - submodule of subenum - healerenum - healer - get url scopes in stdin, and print out the domains which are wildcard scopes (Pass to subenum modules)

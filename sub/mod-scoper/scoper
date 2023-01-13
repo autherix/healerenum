@@ -3,7 +3,7 @@
 rt="/ptv"
 hrt="${rt}/healer"
 source ${hrt}/healerenum/sub/mod-scoper/creds
-source ${rt}/rtsetup
+source ${rt}/rtsetup.sh
 
 help() {
     echo -e "Scoper - submodule of subenum - healerenum - fetch target scopes from h1
