@@ -4,3 +4,6 @@
 [submodule "fallparams-py"]
 	path = fallparams-py
 	url = git@github.com:StoicTopG/fallparams-py.git
+[submodule "subenum"]
+	path = subenum
+	url = git@github.com:StoicTopG/subenum.git
