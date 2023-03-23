@@ -1,0 +1,9 @@
+[submodule "flinks-py"]
+	path = flinks-py
+	url = git@github.com:StoicTopG/flinks-py.git
+[submodule "fallparams-py"]
+	path = fallparams-py
+	url = git@github.com:StoicTopG/fallparams-py.git
+[submodule "robofinder-py"]
+	path = robofinder-py
+	url = git@github.com:StoicTopG/robofinder-py.git
