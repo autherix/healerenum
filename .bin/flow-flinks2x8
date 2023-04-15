@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+
+db="enum"
+target=$1
+target="semrush"
+
+
+# Get the list of all domains from healerdb and save to an array called domains
+domains=$(healerdb domain list -db $db -t $target -j | jq -r '.result[]')
+echo "Domains count: $(printf "%s " "${domains[@]}" | wc -w)"
+
+# Loop through the domains array and run the following command to get the list of all subdomains, then append to allsub array
+allsub=""
+for domain in $domains; do
+    printf "Domain: %s \n" "$domain"
+    sub=$(healerdb subdomain list -db $db -t $target -d $domain -j | jq -r '.result[]')
+    # Append all members of sub array to allsub array
+    allsub=$(printf "%s " "${sub[@]}" "${allsub[@]}" | sed 's/ $//' | sort -u)
+done
+printf "\n--------------------------------------------\n"
+printf "all subs count: %s " "$(printf "%s " "${allsub[@]}" | wc -w)"
+# wait 2 seconds
+# sleep 2
+# printf "%s " "${allsub[@]}"
+
+# seperator
+printf "\n--------------------------------------------\n"
+printf "Processing allsub_httpx...\n"
+
+# Do httpx on allsub and save to a var
+allsub_httpx=$(printf "%s " "${allsub[@]}" | httpx -mc 200,301 -silent)
+echo "allsub_httpx count: $(printf "%s " "${allsub_httpx[@]}" | wc -w)"
+
+# allsub_httpx="https://brutelogic.com.br"
+
+# Echo allsub, then httpx -mc 200,301 -silent, then xargs, then run flinks, then httpx, then remove empty lines, then run fallparams
+# set url = first element in allsub_httpx
+# url=$(printf "%s " "${allsub_httpx[@]}" | head -n 1)
+for url in $allsub_httpx; do
+    # Get all directories for current url from healerdb
+    printf "Running flinks on URL: %s \n" "$url"
+    url_flinks=$(flinks -q -d $url | grep -v '^$' | httpx -mc 200 -silent)
+    url_flinks_count=$(printf "%s " "${url_flinks[@]}" | wc -w)
+    printf "Done running flinks on URL: %s \n" "$url"
+    current_count=0
+    for url_flink in $url_flinks; do
+        current_count=$((current_count+1))
+        # echo Processing url number $current_count of $url_flinks_count
+        printf "Processing %s of %s \r" "$current_count" "$url_flinks_count"
+        FallParams -u $url_flink --append > /dev/null 2>&1
+    done
+    # break the loop
+    break
+done
+# printf "%s " "${allsub[@]}" | httpx -mc 200,301 -silent | xargs -I {} flinks -q -d {} | grep -v '^$' | httpx -mc 200 -silent | grep -v '^$' | xargs -I STH FallParams -u STH --append # > /dev/null 2>&1
+# flinks -q -d $url | grep -v '^$' | httpx -mc 200 -silent | grep -v '^$' | xargs -I {} FallParams -u {} --append > /dev/null 2>&1
+
+# Remove duplicated lines from all .txt files in /ptv/healer/healerenum/fallparams-py/.bin/output/
+# Get where FallParam exists 
+# fallparams_path=$(which FallParams)
+fp_output_path=$(dirname $(which FallParams))/output/
+find $fp_output_path -type f -name "*.txt" -exec sort -u {} -o {} \;
+# Remove empty lines from all .txt files in /ptv/healer/healerenum/fallparams-py/.bin/output/
+find $fp_output_path -type f -name "*.txt" -exec sed -i '/^$/d' {} \;
+
+# Now Iterate over subdomains and run x8 on each with wordlist from FallParams output directory (named after the domain)
+# remove just the last / from the path, then add
+wordlist_path=$(echo $fp_output_path | sed 's/\/$//')
+# Add /all_params.txt to the end of the path
+wordlist_path="$wordlist_path/all_params.txt"
+for subdomain in $allsub_httpx; do
+    # Remove http:// or https:// from the subdomain
+    # subdomain_raw=$(echo $subdomain | sed 's/https\?:\/\///')
+    # Get the wordlist path from FallParams output directory, name of the file would be subdomain.txt
+    # wordlist_path=$(find $fp_output_path -type f -name "$subdomain_raw.txt")
+    # Run x8 on the subdomain with the wordlist
+    x8 -u $subdomain -w $wordlist_path
+    # x8 -u $subdomain -w $wordlist_path
+done
