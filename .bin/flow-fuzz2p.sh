@@ -122,7 +122,7 @@ single_sub_fuzz() {
     fi
 
     # Run ffuf on it
-    ffuf -u $c_asset/FUZZ -w $fuzz_wordlist -recursion -recursion-depth 1 -recursion-strategy "greedy" -r -json -mc 200 -o /tmp/ffuf_out_$2.json -H "User-Agent: Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)" -s -mc 200 -ac -timeout 10
+    ffuf -u $c_asset/FUZZ -w $fuzz_wordlist -recursion -recursion-depth 1 -recursion-strategy "greedy" -r -json -mc 200 -o /tmp/ffuf_out_$2.json -H "User-Agent: Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)" -s -mc 200 -ac -timeout 10 > /dev/null 2>&1
 
     # save output file to a var
     ffuf_out=$(cat /tmp/ffuf_out_$2.json)
@@ -153,6 +153,12 @@ single_sub_fuzz() {
     # healerdb directory multi-create -db $fuzz_db -t $fuzz_target -d $fuzz_domain -sub $fuzz_subdomain -dir "$ffuf_out_new" > /dev/null 2>&1
 
     printf "[+] successfully saved directories for $2\n"
+
+    ### FUZZing files ###
+
+    # # Get the list of directories of this subdomain from the database using healerdb, remove 
+    # fuzz_dirs=$(healerdb directory list -db $fuzz_db -t $fuzz_target -d $fuzz_domain -sub $fuzz_subdomain -j | jq -r '.result[]')
+
 }
 
 # If domain is specified, check if it's not in the list, exit with error
