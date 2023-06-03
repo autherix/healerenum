@@ -95,44 +95,65 @@ fi
 
 # function single_sub_fuzz() to run single_sub_fuzz on a single subdomain
 single_sub_fuzz() {
+    
+    # Run httpx on the current subdomain to make sure it's up and running, and to build an asset out of the subdomain and save it to a var to be used later
     fuzz_db=$db
     fuzz_target=$target
     fuzz_domain=$1
     fuzz_subdomain=$2
-    
-    # c_base=$(httpx -silent -no-color -no-fallback -no-status -no-title -no-websocket -threads 1 -timeout 10 -ports 80,443 -content-length -follow-redirects -l $2 | tee /dev/tty)
+    fuzz_wordlist="/lst/dir/test-200.txt"    
+    # c_asset=$(httpx -silent -no-color -no-fallback -no-status -no-title -no-websocket -threads 1 -timeout 10 -ports 80,443 -content-length -follow-redirects -l $2 | tee /dev/tty)
     
     # Run httpx on it and save it to a var to be used later
-    c_base=$(httpx -u $2 -mc 200,403 -fr -no-color -silent)
+    c_asset=$(httpx -u $2 -mc 200 -fr -no-color -silent)
 
     # find the last url in the output, remove last ] 
-    c_base=$(echo $c_base | grep -oP '(?<=\[).*(?=\])' | sed 's/.$//')
+    c_asset=$(echo $c_asset | grep -oP '(?<=\[).*(?=\])' | sed 's/.$//')
 
     # Remove last / if it exists
-    if [[ "${c_base: -1}" == "/" ]]; then
-        c_base="${c_base::-1}"
+    if [[ "${c_asset: -1}" == "/" ]]; then
+        c_asset="${c_asset::-1}"
     fi
 
-    # If c_base is empty, return
-    if [[ -z "$c_base" ]]; then
-        printf "No valid urls found for $2\n"
+    # If c_asset is empty, return
+    if [[ -z "$c_asset" ]]; then
+        printf "[-] No valid urls found for $2\n"
         return
     fi
 
-    # Run ffuf on it recursively and print the result
-    ffuf_out=$(ffuf -w /lst/dir/test-200.txt:DIRFUZZ -u $c_base/DIRFUZZ/ -H "user-agent: Firefox5" -r -t 100 -s | tr '\n' ' ' | sed 's/.$//')
-    # ffuf -w /lst/dir/test-200.txt:DIRFUZZ -u $c_base/DIRFUZZ/ -H "user-agent: Firefox5" -r -t 100 -s -o /tmp/ffuf_out_$2.txt
+    # Run ffuf on it
+    ffuf -u $c_asset/FUZZ -w $fuzz_wordlist -recursion -recursion-depth 1 -recursion-strategy "greedy" -r -json -mc 200 -o /tmp/ffuf_out_$2.json -H "User-Agent: Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)" -s -mc 200 -ac -timeout 10
 
-    # Read lines from ffuf output file, replace new lines with spaces, remove last space
-    # ffuf_out=$(cat /tmp/ffuf_out_$2.txt | tr '\n' ' ' | sed 's/.$//')
+    # save output file to a var
+    ffuf_out=$(cat /tmp/ffuf_out_$2.json)
 
-    # Use healerdb to add directories to the database
-    healerdb directory multi-create -db $db -t $target -d $domain -sub $2 -dir "$ffuf_out"
-    # healerdb directory multi-create -db test -t t -d t.com -sub t.t.com -dir "dir1 dir2 dir3 admin login dir6"
+    # use jq and get the result part
+    ffuf_out_results_urls=$(echo $ffuf_out | jq -r '.results[].url' | sort -u)
 
-    printf "Successfully fuzzed $2\n"
+    # If ffuf_out_results_urls is empty, return
+    if [[ -z "$ffuf_out_results_urls" ]]; then
+        printf "[-] No directories found for $2\n"
+        return
+    fi
+
+    # remove the c_asset from the start of each item in ffuf_out_results_urls
+    ffuf_out_results_urls=$(echo $ffuf_out_results_urls | sed "s|$c_asset||g")
+
+    # If ffuf_out_results_urls is empty, return
+    if [[ -z "$ffuf_out_results_urls" ]]; then
+        printf "[-] No directories found for $2\n"
+        return
+    fi
+
+    # convert new lines to space
+    ffuf_out_results_urls=$(echo $ffuf_out_results_urls | tr '\n' ' ')
+
+    # Save the results to the database using healerdb
+    healerdb directory multi-create -db $fuzz_db -t $fuzz_target -d $fuzz_domain -sub $fuzz_subdomain -dir "$ffuf_out_results_urls" > /dev/null 2>&1
+    # healerdb directory multi-create -db $fuzz_db -t $fuzz_target -d $fuzz_domain -sub $fuzz_subdomain -dir "$ffuf_out_new" > /dev/null 2>&1
+
+    printf "[+] successfully saved directories for $2\n"
 }
-
 
 # If domain is specified, check if it's not in the list, exit with error
 if [[ -n "$domain" ]]; then
