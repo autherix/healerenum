@@ -1,0 +1,157 @@
+#!/usr/bin/env bash
+
+#!/usr/bin/env bash
+
+Usage() {
+    printf "Usage: $0 [OPTIONS] [ARGS]\n"
+    printf "Options:\n"
+    printf "\t-h, --help\t\t\tShow this help message and exit\n"
+    printf "\t-db, --database\t\t\tDatabase name to use, default is enum\n"
+    printf "\t-t, --target\t\t\tTarget name to use, required\n"
+    printf "\t-d, --domain\t\t\tDomain name to use, optional\n"
+    printf "\t-sub, --subdomain\t\tSubdomain name to use, optional\n"
+    printf "\t--args\t\t\t\tPass remaining args to single_sub_xss\n"
+    printf "Args:\n"
+    printf "\tARGS\t\t\t\tArguments to pass to single_sub_xss\n"
+    printf "Examples:\n"
+    printf "\t$0 -t target1\n"
+    printf "\t$0 -t target1 -d domain1\n"
+    printf "\t$0 -t target1 -d domain1 -sub subdomain1\n"
+    printf "\t$0 -t target1 -d domain1 -sub subdomain1 --args -w /path/to/wordlist.txt -t 100\n"
+    printf "\t$0 -t target1 -d domain1 -sub subdomain1 --args -w /path/to/wordlist.txt -t 100 -o /path/to/output.txt\n"
+}
+
+db=""
+target=""
+domain=""
+subdomain=""
+POSITIONAL=()
+
+while [[ $# -gt 0 ]]; do
+    key="$1"
+    case $key in
+        -h|--help)
+            Usage
+            exit 0
+            ;;
+        -db|--database)
+            db="$2"
+            shift
+            shift
+            ;;
+        -t|--target)
+            target="$2"
+            shift
+            shift
+            ;;
+        -d|--domain)
+            domain="$2"
+            shift
+            shift
+            ;;
+        -sub|--subdomain)
+            subdomain="$2"
+            shift
+            shift
+            ;;
+        --args)
+            # Add remaining args to POSITIONAL until end of args or next flag(starting with -)
+            while [[ $# -gt 0 ]]; do
+                key="$1"
+                if [[ $key == -* ]]; then
+                    break
+                fi
+                POSITIONAL+=("$1")
+                shift
+            done
+            break
+            ;;
+        *)
+            echo "Unknown option: $key"
+            Usage
+            exit 1
+            ;;
+    esac
+done
+
+set -- "${POSITIONAL[@]}" # restore positional parameters -what does this do? - it sets the positional parameters to the value of the array
+
+if [[ -z "$db" ]]; then
+    db="enum"
+fi
+
+if [[ -z "$target" ]]; then
+    echo "Target not specified, Exiting"
+    Usage
+    exit 1
+fi
+
+# Get domain list fron healerdb
+domains=$(healerdb domain list -db $db -t $target -j | jq -r '.result[]')
+
+# If it's empty, exit with error
+if [[ -z "$domains" ]]; then
+    echo "No domains found for target $target, Exiting"
+    exit 1
+fi
+
+# Function to run single_sub_xss() on a subdomain
+single_sub_xss() {
+
+    xss_db=$db
+    xss_target=$target
+    xss_domain=$1
+    xss_subdomain=$2
+
+    printf "Running single_sub_xss on $1.$2\n"
+
+    # Get the list of directories from database using healerdb
+    dirs=$(healerdb dir list -db $xss_db -t $xss_target -d $xss_domain -s $xss_subdomain -j | jq -r '.result[]')
+
+    # If it's empty, return null
+    if [[ -z "$dirs" ]]; then
+        printf "No directories found for $1.$2\n"
+        return
+    fi
+
+}
+
+# If domain is specified, check if it's not in the list, exit with error
+if [[ -n "$domain" ]]; then
+    if [[ ! "$domains" =~ "$domain" ]]; then
+        echo "Domain $domain not found for target $target, Exiting"
+        exit 1
+    else 
+        subdomains=$(healerdb subdomain list -db $db -t $target -d $domain -j | jq -r '.result[]')
+        # If subdomain is specified, check if it's not in the list, exit with error
+        if [[ -n "$subdomain" ]]; then
+            if [[ ! "$subdomains" =~ "$subdomain" ]]; then
+                echo "Subdomain $subdomain not found for target $target, domain $domain, Exiting"
+                exit 1
+            else
+                # Run single_sub_xss() on it and saveit to a var to be used later
+                single_sub_xss_result=$(single_sub_xss $domain $subdomain)
+                printf "$single_sub_xss_result\n"
+            fi
+        else
+            # Iterate over subdomains
+            for subdomain in $subdomains; do
+                # Run single_sub_xss() on it and saveit to a var to be used later
+                single_sub_xss_result=$(single_sub_xss $domain $subdomain)
+                printf "$single_sub_xss_result\n"
+            done
+        fi
+    fi
+else
+    # Iterate over domains
+    for domain in $domains; do
+        # Get subdomains for each domain
+        subdomains=$(healerdb subdomain list -db $db -t $target -d $domain -j | jq -r '.result[]')
+        # Iterate over subdomains
+        for subdomain in $subdomains; do
+            # Run single_sub_xss() on it and saveit to a var to be used later
+            single_sub_xss_result=$(single_sub_xss $domain $subdomain)
+            printf "$single_sub_xss_result\n"
+        done
+    done
+fi

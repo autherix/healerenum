@@ -101,55 +101,107 @@ single_sub_fuzz() {
     fuzz_target=$target
     fuzz_domain=$1
     fuzz_subdomain=$2
-    fuzz_wordlist="/lst/dir/test-200.txt"    
+    fuzz_wordlist="/lst/dir/fixed_test-200.txt"
+    # fuzz_wordlist="/lst/dir/fixed_dirsearch.txt"    
     # c_asset=$(httpx -silent -no-color -no-fallback -no-status -no-title -no-websocket -threads 1 -timeout 10 -ports 80,443 -content-length -follow-redirects -l $2 | tee /dev/tty)
     
     # Run httpx on it and save it to a var to be used later
-    c_asset=$(httpx -u $2 -mc 200 -fr -no-color -silent)
+    c_asset=$(httpx -u $fuzz_subdomain -mc 200 -no-color -silent) # -fr
 
-    # find the last url in the output, remove last ] 
-    c_asset=$(echo $c_asset | grep -oP '(?<=\[).*(?=\])' | sed 's/.$//')
+    c_asset_not_bad=$(httpx -u $fuzz_subdomain -no-color -silent) 
 
-    # Remove last / if it exists
-    if [[ "${c_asset: -1}" == "/" ]]; then
-        c_asset="${c_asset::-1}"
-    fi
+    # find the last url in the output
+    c_asset=$(echo $c_asset | grep -Eo "(http|https)://[a-zA-Z0-9./?=_-]*" | tail -n 1)
 
     # If c_asset is empty, return
     if [[ -z "$c_asset" ]]; then
-        printf "[-] No valid urls found for $2\n"
+        # send a curl request to $ fuzz_subdomain, if the response header Content type is text/plain, set c_asset to $c_asset_not_bad, else return
+        curl_out_content_type=$(curl -s -I $fuzz_subdomain -L | grep "content-type: " | awk '{print $2}')
+        if [[ "$curl_out_content_type" == *"text/plain"* ]] || [[ "$curl_out_content_type" == *"text/xml"* ]] || [[ "$curl_out_content_type" == *"application/xml"* ]] || [[ "$curl_out_content_type" == *"application/json"* ]]; then
+            c_asset=$c_asset_not_bad
+        else
+            printf "[-] No valid urls found for $2\n"
+            return
+        fi
+    fi
+
+    # If last char is not /, append it
+    if [[ ! "$c_asset" =~ /$ ]]; then
+        c_asset="$c_asset/"
+    fi
+
+    # Send a curl request to c_asset without fetching body, to get the status code and redirect url
+    curl_out=$(curl -s -o /dev/null -w "%{http_code} %{redirect_url}" $c_asset)
+    curl_out_status_code=$(echo $curl_out | awk '{print $1}')
+    curl_out_redirect_url=$(echo $curl_out | awk '{print $2}')
+    # if status code is not 200 AND redirect url is not starting with c_asset AND redirect url is not empty, return
+    if [[ "$curl_out_status_code" != "200" ]] && [[ ! "$curl_out_redirect_url" =~ ^"$c_asset" ]] && [[ -n "$curl_out_redirect_url" ]]; then
+        printf "[-] $c_asset is not up or it's redirecting to a different subdomain\nCurrent Subdomain: $fuzz_subdomain\nRedirect URL: $curl_out_redirect_url\nCurrent Asset: $c_asset\n"
         return
+    else
+        printf "Running ffuf on $c_asset\n"
     fi
 
     # Run ffuf on it
-    ffuf -u $c_asset/FUZZ -w $fuzz_wordlist -recursion -recursion-depth 1 -recursion-strategy "greedy" -r -json -mc 200 -o /tmp/ffuf_out_$2.json -H "User-Agent: Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)" -s -mc 200 -ac -timeout 10 > /dev/null 2>&1
+    ffuf -u "$c_asset"FUZZ -w $fuzz_wordlist -recursion -recursion-depth 1 -recursion-strategy "greedy" -json -o /tmp/ffuf_out_$fuzz_subdomain.json -H "User-Agent: Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)" -mc 200 -timeout 10 -s  > /dev/null 2>&1 # -ac -r -s
+
+    # # Wait until ffuf and its subprocesses finish
+    # wait $(jobs -p) 
+
+    # ffuf -u dashboard.hiltonmanage.com/FUZZ -w "/lst/dir/dirsearch.txt" -recursion -recursion-depth 1 -recursion-strategy "greedy" -r -json -mc 200 -o /tmp/ffuf_out_dashboard.hiltonmanage.com.json -H "User-Agent: Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)" -s -mc 200 -ac -timeout 10
+
+
+    # check if /tmp/ffuf_out_$fuzz_subdomain.json exists, if not, return
+    if [[ ! -f "/tmp/ffuf_out_$fuzz_subdomain.json" ]]; then
+        printf "[-] No directories found for $c_asset, ffuf output file does not exist\n"
+        return
+    fi
 
     # save output file to a var
-    ffuf_out=$(cat /tmp/ffuf_out_$2.json)
+    ffuf_out=$(cat /tmp/ffuf_out_$fuzz_subdomain.json)
+
+    # If ffuf_out is empty, return
+    if [[ -z "$ffuf_out" ]]; then
+        printf "[-] No directories found for $c_asset, ffuf output is empty !\n"
+        return
+    fi
+
+    # Remove the output file
+    # rm /tmp/ffuf_out_$fuzz_subdomain.json
 
     # use jq and get the result part
-    ffuf_out_results_urls=$(echo $ffuf_out | jq -r '.results[].url' | sort -u)
+    ffuf_out_results_urls="$(echo "$ffuf_out" | jq -r '.results[].url' | sort -u)"
 
     # If ffuf_out_results_urls is empty, return
     if [[ -z "$ffuf_out_results_urls" ]]; then
-        printf "[-] No directories found for $2\n"
+        printf "[-] No directories found for $c_asset\n"
         return
     fi
 
     # remove the c_asset from the start of each item in ffuf_out_results_urls
-    ffuf_out_results_urls=$(echo $ffuf_out_results_urls | sed "s|$c_asset||g")
+    ffuf_out_results_urls_with_c_asset=$ffuf_out_results_urls
 
-    # If ffuf_out_results_urls is empty, return
-    if [[ -z "$ffuf_out_results_urls" ]]; then
-        printf "[-] No directories found for $2\n"
-        return
-    fi
+    # Iterate over ffuf_out_results_urls_with_c_asset and if the url does not start with c_asset, add it before each url
+    for url in $ffuf_out_results_urls_with_c_asset; do
+        # If url does not start with c_asset
+        if [[ ! "$url" =~ ^"$c_asset" ]]; then
+            # If url is not starting with /, add it 
+            if [[ ! "$url" =~ ^"/" ]]; then
+                url="/$url"
+            fi
+            # Add c_asset to the start of url
+            url="$c_asset$url"
+        fi
+    done
 
     # convert new lines to space
-    ffuf_out_results_urls=$(echo $ffuf_out_results_urls | tr '\n' ' ')
+    ffuf_out_results_urls="$(echo $ffuf_out_results_urls | tr '\n' ' ')"
 
     # Save the results to the database using healerdb
-    healerdb directory multi-create -db $fuzz_db -t $fuzz_target -d $fuzz_domain -sub $fuzz_subdomain -dir "$ffuf_out_results_urls" > /dev/null 2>&1
+    healerdb directory multi-create -db $fuzz_db -t $fuzz_target -d $fuzz_domain -sub $fuzz_subdomain -dir "$ffuf_out_results_urls" # > /dev/null 2>&1
+
+    # also add complete urls to the database
+    healerdb url multi-create -db $fuzz_db -t $fuzz_target -d $fuzz_domain -sub $fuzz_subdomain -u "$ffuf_out_results_urls_with_c_asset" # > /dev/null 2>&1
     # healerdb directory multi-create -db $fuzz_db -t $fuzz_target -d $fuzz_domain -sub $fuzz_subdomain -dir "$ffuf_out_new" > /dev/null 2>&1
 
     printf "[+] successfully saved directories for $2\n"

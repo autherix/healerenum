@@ -1,0 +1,206 @@
+#!/usr/bin/env bash
+
+#!/usr/bin/env bash
+
+Usage() {
+    printf "Usage: $0 [OPTIONS] [ARGS]\n"
+    printf "Options:\n"
+    printf "\t-h, --help\t\t\tShow this help message and exit\n"
+    printf "\t-db, --database\t\t\tDatabase name to use, default is enum\n"
+    printf "\t-t, --target\t\t\tTarget name to use, required\n"
+    printf "\t-d, --domain\t\t\tDomain name to use, optional\n"
+    printf "\t-sub, --subdomain\t\tSubdomain name to use, optional\n"
+    printf "\t--args\t\t\t\tPass remaining args to single_sub_param\n"
+    printf "Args:\n"
+    printf "\tARGS\t\t\t\tArguments to pass to single_sub_param\n"
+    printf "Examples:\n"
+    printf "\t$0 -t target1\n"
+    printf "\t$0 -t target1 -d domain1\n"
+    printf "\t$0 -t target1 -d domain1 -sub subdomain1\n"
+    printf "\t$0 -t target1 -d domain1 -sub subdomain1 --args -w /path/to/wordlist.txt -t 100\n"
+    printf "\t$0 -t target1 -d domain1 -sub subdomain1 --args -w /path/to/wordlist.txt -t 100 -o /path/to/output.txt\n"
+}
+
+db=""
+target=""
+domain=""
+subdomain=""
+POSITIONAL=()
+
+while [[ $# -gt 0 ]]; do
+    key="$1"
+    case $key in
+        -h|--help)
+            Usage
+            exit 0
+            ;;
+        -db|--database)
+            db="$2"
+            shift
+            shift
+            ;;
+        -t|--target)
+            target="$2"
+            shift
+            shift
+            ;;
+        -d|--domain)
+            domain="$2"
+            shift
+            shift
+            ;;
+        -sub|--subdomain)
+            subdomain="$2"
+            shift
+            shift
+            ;;
+        --args)
+            # Add remaining args to POSITIONAL until end of args or next flag(starting with -)
+            while [[ $# -gt 0 ]]; do
+                key="$1"
+                if [[ $key == -* ]]; then
+                    break
+                fi
+                POSITIONAL+=("$1")
+                shift
+            done
+            break
+            ;;
+        *)
+            echo "Unknown option: $key"
+            Usage
+            exit 1
+            ;;
+    esac
+done
+
+set -- "${POSITIONAL[@]}" # restore positional parameters -what does this do? - it sets the positional parameters to the value of the array
+
+if [[ -z "$db" ]]; then
+    db="enum"
+fi
+
+if [[ -z "$target" ]]; then
+    echo "Target not specified, Exiting"
+    Usage
+    exit 1
+fi
+
+# Get domain list fron healerdb
+domains=$(healerdb domain list -db $db -t $target -j | jq -r '.result[]')
+
+# If it's empty, exit with error
+if [[ -z "$domains" ]]; then
+    echo "No domains found for target $target, Exiting"
+    exit 1
+fi
+
+# Function to run single_sub_param() on a subdomain
+single_sub_param() {
+
+    param_fuzz_db=$db
+    param_fuzz_target=$target
+    param_fuzz_domain=$1
+    param_fuzz_subdomain=$2
+
+    printf "Running single_sub_param on $param_fuzz_subdomain\n"
+
+    # Get the list of urls from database using healerdb
+    urls=$(healerdb url list -db $param_fuzz_db -t $param_fuzz_target -d $param_fuzz_domain -sub $param_fuzz_subdomain -j | jq -r '.result[]')
+
+    # If it's empty, return null
+    if [[ -z "$urls" ]]; then
+        echo "No urls found for subdomain $param_fuzz_subdomain"
+        return
+    fi
+
+    # Iterate over the list of urls and run x8 on each of them
+    for url in $urls; do
+        # Run x8 on the url
+        x8 -u $url -w /lst/param/burp-parameter-names.txt -o /tmp/x8_out_$param_fuzz_domain.txt -O json --follow-redirects --disable-colors --disable-trustdns --verify > /dev/null 2>&1
+        # --disable-progress-bar
+
+        # If the output file does not exists or not readable, return null
+        if [[ ! -f "/tmp/x8_out_$param_fuzz_domain.txt" ]] || [[ ! -r "/tmp/x8_out_$param_fuzz_domain.txt" ]]; then
+            echo "No output file found or not accessible for url $url"
+            # pass to next loop
+            continue
+        fi
+
+        # If the output file is empty, return null
+        if [[ ! -s "/tmp/x8_out_$param_fuzz_domain.txt" ]]; then
+            echo "No output found for url $url"
+            # pass to next loop
+            continue
+        fi
+
+        # Now read that file and save the output to a var
+        valid_reflected_params_list=$(cat /tmp/x8_out_$param_fuzz_domain.txt | jq -r '.[] | select(.status==200, .injection_place=="Path") | (.url, (.found_params[] | select(.diffs=="") | select(.status==200) | select(."reason_kind"=="Reflected") | .name))')
+        #  cat /tmp/x8_out_semrush.com.txt | jq -r '.[] | select(.status==200, .injection_place=="Path") | (.url, (.found_params[] | select(.diffs=="") | select(.status==200) | select(."reason_kind"=="Reflected") | .name))'
+
+        # Remove the output file
+        rm /tmp/x8_out_$param_fuzz_domain.txt
+
+        # If the first item is empty or not equal to url, return null
+        if [[ -z "$valid_reflected_params_list" ]] || [[ ! "$valid_reflected_params_list" =~ "$url" ]]; then
+            echo "No valid reflected params found for url $url"
+            continue
+        fi
+
+        # replace newlines with space
+        valid_reflected_params_list=$(echo "$valid_reflected_params_list" | tr '\n' ' ')
+
+        # Remove the first item from the list
+        valid_reflected_params_list=$(echo "$valid_reflected_params_list" | sed '1d')
+
+        # If the list is empty, return null
+        if [[ -z "$valid_reflected_params_list" ]]; then
+            echo "No valid reflected params found for url $url"
+            continue
+        fi
+
+        # Add the params to the database using healerdb
+        healerdb parameter_url multi-create -db $param_fuzz_db -t $param_fuzz_target -d $param_fuzz_domain -sub $param_fuzz_subdomain -u $url -p $valid_reflected_params_list
+    done
+
+}
+
+# If domain is specified, check if it's not in the list, exit with error
+if [[ -n "$domain" ]]; then
+    if [[ ! "$domains" =~ "$domain" ]]; then
+        echo "Domain $domain not found for target $target, Exiting"
+        exit 1
+    else 
+        subdomains=$(healerdb subdomain list -db $db -t $target -d $domain -j | jq -r '.result[]')
+        # If subdomain is specified, check if it's not in the list, exit with error
+        if [[ -n "$subdomain" ]]; then
+            if [[ ! "$subdomains" =~ "$subdomain" ]]; then
+                echo "Subdomain $subdomain not found for target $target, domain $domain, Exiting"
+                exit 1
+            else
+                # Run single_sub_param() on it and saveit to a var to be used later
+                single_sub_param_result=$(single_sub_param $domain $subdomain)
+                printf "$single_sub_param_result\n"
+            fi
+        else
+            # Iterate over subdomains
+            for subdomain in $subdomains; do
+                # Run single_sub_param() on it and saveit to a var to be used later
+                single_sub_param_result=$(single_sub_param $domain $subdomain)
+                printf "$single_sub_param_result\n"
+            done
+        fi
+    fi
+else
+    # Iterate over domains
+    for domain in $domains; do
+        # Get subdomains for each domain
+        subdomains=$(healerdb subdomain list -db $db -t $target -d $domain -j | jq -r '.result[]')
+        # Iterate over subdomains
+        for subdomain in $subdomains; do
+            # Run single_sub_param() on it and saveit to a var to be used later
+            single_sub_param_result=$(single_sub_param $domain $subdomain)
+            printf "$single_sub_param_result\n"
+        done
+    done
+fi
