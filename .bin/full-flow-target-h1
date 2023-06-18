@@ -86,12 +86,46 @@ if [[ -z "$target" ]]; then
     exit 1
 fi
 
-# Run subenum 
-printf "Running subenum on $target\n"
-subenum -p h1 -db enum -t $target
-
-# Get domain list fron healerdb
-domains=$(healerdb domain list -db $db -t $target -j | jq -r '.result[]')
+# Run subenum if domain and subdomain is not provided or found
+if [[ -z "$domain" ]] && [[ -z "$subdomain" ]]; then
+    printf "Subdomain not specified, running subenum on $target\n"
+    subenum -p h1 -db enum -t $target
+elif [[ -n "$domain" ]] && [[ -n "$subdomain" ]]; then
+    # Get domain list fron healerdb
+    domains=$(healerdb domain list -db $db -t $target -j | jq -r '.result[]')
+    # If the domains is empty or the domain is not in the list, run subenum
+    if [[ -z "$domains" ]] || [[ ! "$domains" =~ "$domain" ]]; then
+        printf "Domain not specified or not found, running subenum on $target\n"
+        subenum -p h1 -db enum -t $target
+    else    
+        # get the list of subdomains for the domain
+        subdomains=$(healerdb subdomain list -db $db -t $target -d $domain -j | jq -r '.result[]')
+        # If the subdomains is empty or the subdomain is not in the list, run subenum
+        if [[ -z "$subdomains" ]] || [[ ! "$subdomains" =~ "$subdomain" ]]; then
+            printf "Subdomain not specified or not found, running subenum on $target\n"
+            subenum -p h1 -db enum -t $target
+        fi
+    fi
+elif [[ -n "$domain" ]] && [[ -z "$subdomain" ]]; then
+    # Get domain list fron healerdb
+    domains=$(healerdb domain list -db $db -t $target -j | jq -r '.result[]')
+    # If the domains is empty or the domain is not in the list, run subenum
+    if [[ -z "$domains" ]] || [[ ! "$domains" =~ "$domain" ]]; then
+        printf "Domain not specified or not found, running subenum on $target\n"
+        subenum -p h1 -db enum -t $target
+    else
+        # Get the list of subdomains for the domain
+        subdomains=$(healerdb subdomain list -db $db -t $target -d $domain -j | jq -r '.result[]')
+        # If the subdomains is empty, run subenum
+        if [[ -z "$subdomains" ]]; then
+            printf "Subdomain not specified or not found, running subenum on $target\n"
+            subenum -p h1 -db enum -t $target
+        fi
+    fi
+else
+    printf "Domain not specified or not found, running subenum on $target\n"
+    subenum -p h1 -db enum -t $target
+fi
 
 # If it's empty, exit with error
 if [[ -z "$domains" ]]; then
@@ -111,12 +145,18 @@ single_sub_full_flow() {
 
     # Run flow-fuzz2p on it
     printf "Running flow-fuzz2p on $full_flow_subdomain\n"
+    wait $!
     flow-fuzz2p -db $full_flow_db -t $full_flow_target -d $full_flow_domain -sub $full_flow_subdomain 
+    wait $!
+    # if fuzz2p is not successful, exit with error
+    if [[ $? -ne 0 ]]; then
+        echo "flow-fuzz2p failed on $full_flow_subdomain, Exiting"
+        return 1
+    fi
 
     # Run flow-param on it
     printf "Running flow-param on $full_flow_subdomain\n"
     flow-param -db $full_flow_db -t $full_flow_target -d $full_flow_domain -sub $full_flow_subdomain 
-
 }
 
 # If domain is specified, check if it's not in the list, exit with error
