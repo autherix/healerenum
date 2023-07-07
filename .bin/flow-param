@@ -21,7 +21,7 @@ Usage() {
     printf "\t$0 -t target1 -d domain1 -sub subdomain1 --args -w /path/to/wordlist.txt -t 100 -o /path/to/output.txt\n"
 }
 
-db=""
+db="enum"
 target=""
 domain=""
 subdomain=""
@@ -67,7 +67,7 @@ while [[ $# -gt 0 ]]; do
             break
             ;;
         *)
-            echo "Unknown option: $key"
+            printf "Unknown option: $key\n"
             Usage
             exit 1
             ;;
@@ -81,7 +81,7 @@ if [[ -z "$db" ]]; then
 fi
 
 if [[ -z "$target" ]]; then
-    echo "Target not specified, Exiting"
+    printf "Target not specified, Exiting\n"
     Usage
     exit 1
 fi
@@ -91,7 +91,7 @@ domains=$(healerdb domain list -db $db -t $target -j | jq -r '.result[]')
 
 # If it's empty, exit with error
 if [[ -z "$domains" ]]; then
-    echo "No domains found for target $target, Exiting"
+    printf "No domains found for target $target, Exiting\n"
     exit 1
 fi
 
@@ -110,26 +110,26 @@ single_sub_param() {
 
     # If it's empty, return null
     if [[ -z "$urls" ]]; then
-        echo "No urls found for subdomain $param_fuzz_subdomain"
+        printf "No urls found for subdomain $param_fuzz_subdomain\n"
         return
     fi
 
     # Iterate over the list of urls and run x8 on each of them
     for url in $urls; do
         # Run x8 on the url
-        x8 -u $url -w /lst/param/burp-parameter-names.txt -o /tmp/x8_out_$param_fuzz_domain.txt -O json --follow-redirects --disable-colors --disable-trustdns --verify > /dev/null 2>&1
+        x8 -u $url -w /lst/param/burp-parameter-names.txt -o /tmp/x8_out_$param_fuzz_domain.txt -O json --follow-redirects --disable-colors --disable-trustdns --verify # > /dev/null 2>&1
         # --disable-progress-bar
 
         # If the output file does not exists or not readable, return null
         if [[ ! -f "/tmp/x8_out_$param_fuzz_domain.txt" ]] || [[ ! -r "/tmp/x8_out_$param_fuzz_domain.txt" ]]; then
-            echo "No output file found or not accessible for url $url"
+            printf "No output file found or not accessible for url $url\n"
             # pass to next loop
             continue
         fi
 
         # If the output file is empty, return null
         if [[ ! -s "/tmp/x8_out_$param_fuzz_domain.txt" ]]; then
-            echo "No output found for url $url"
+            printf "No output found for url $url - x8 output file is empty\n"
             # pass to next loop
             continue
         fi
@@ -143,7 +143,7 @@ single_sub_param() {
 
         # If the first item is empty or not equal to url, return null
         if [[ -z "$valid_reflected_params_list" ]] || [[ ! "$valid_reflected_params_list" =~ "$url" ]]; then
-            echo "No valid reflected params found for url $url"
+            printf "No valid reflected params found for url $url\n"
             continue
         fi
 
@@ -155,12 +155,14 @@ single_sub_param() {
 
         # If the list is empty, return null
         if [[ -z "$valid_reflected_params_list" ]]; then
-            echo "No valid reflected params found for url $url"
+            printf "No valid reflected params found for url $url\n"
             continue
         fi
 
         # Add the params to the database using healerdb
         healerdb parameter_url multi-create -db $param_fuzz_db -t $param_fuzz_target -d $param_fuzz_domain -sub $param_fuzz_subdomain -u $url -p $valid_reflected_params_list
+
+        printf "Done param enum on $url\n"
     done
 
 }
@@ -168,14 +170,14 @@ single_sub_param() {
 # If domain is specified, check if it's not in the list, exit with error
 if [[ -n "$domain" ]]; then
     if [[ ! "$domains" =~ "$domain" ]]; then
-        echo "Domain $domain not found for target $target, Exiting"
+        printf "Domain $domain not found for target $target, Exiting\n"
         exit 1
     else 
         subdomains=$(healerdb subdomain list -db $db -t $target -d $domain -j | jq -r '.result[]')
         # If subdomain is specified, check if it's not in the list, exit with error
         if [[ -n "$subdomain" ]]; then
             if [[ ! "$subdomains" =~ "$subdomain" ]]; then
-                echo "Subdomain $subdomain not found for target $target, domain $domain, Exiting"
+                printf "Subdomain $subdomain not found for target $target, domain $domain, Exiting\n"
                 exit 1
             else
                 # Run single_sub_param() on it and saveit to a var to be used later

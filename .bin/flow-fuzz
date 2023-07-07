@@ -19,10 +19,13 @@ Usage() {
     printf "\t$0 -t target1 -d domain1 -sub subdomain1 --args -w /path/to/wordlist.txt -t 100 -o /path/to/output.txt\n"
 }
 
-db=""
+db="enum"
 target=""
 domain=""
 subdomain=""
+# wordlist="/lst/dir/fixed_ffuf_test-200.txt"
+wordlist="/lst/dir/raft-small-directories-lowercase.txt"
+# wordlist="/lst/dir/fixed_ffuf_dirsearch.txt"
 POSITIONAL=()
 
 while [[ $# -gt 0 ]]; do
@@ -32,6 +35,7 @@ while [[ $# -gt 0 ]]; do
             Usage
             exit 0
             ;;
+        # db is optional, if it's not specified, it will be set to enum as default
         -db|--database)
             db="$2"
             shift
@@ -44,6 +48,11 @@ while [[ $# -gt 0 ]]; do
             ;;
         -d|--domain)
             domain="$2"
+            shift
+            shift
+            ;;
+        -w|--wordlist)
+            wordlist="$2"
             shift
             shift
             ;;
@@ -87,6 +96,9 @@ fi
 # Get domain list fron healerdb
 domains=$(healerdb domain list -db $db -t $target -j | jq -r '.result[]')
 
+# print the number of domains
+printf "[+] Found $(echo $domains | wc -w) domains for target $target\n"
+
 # If it's empty, exit with error
 if [[ -z "$domains" ]]; then
     echo "No domains found for target $target, Exiting"
@@ -101,8 +113,7 @@ single_sub_fuzz() {
     fuzz_target=$target
     fuzz_domain=$1
     fuzz_subdomain=$2
-    fuzz_wordlist="/lst/dir/fixed_test-200.txt"
-    # fuzz_wordlist="/lst/dir/fixed_dirsearch.txt"    
+    fuzz_wordlist=$wordlist
     # c_asset=$(httpx -silent -no-color -no-fallback -no-status -no-title -no-websocket -threads 1 -timeout 10 -ports 80,443 -content-length -follow-redirects -l $2 | tee /dev/tty)
     
     # Run httpx on it and save it to a var to be used later
@@ -117,6 +128,8 @@ single_sub_fuzz() {
     if [[ -z "$c_asset" ]]; then
         # send a curl request to $ fuzz_subdomain, if the response header Content type is text/plain, set c_asset to $c_asset_not_bad, else return
         curl_out_content_type=$(curl -s -I $fuzz_subdomain -L | grep "content-type: " | awk '{print $2}')
+        # print c_asset is empty , then print the curl_out_content_type
+        printf "[-] No valid urls found for $2\ncurl output content type: $curl_out_content_type\n"
         if [[ "$curl_out_content_type" == *"text/plain"* ]] || [[ "$curl_out_content_type" == *"text/xml"* ]] || [[ "$curl_out_content_type" == *"application/xml"* ]] || [[ "$curl_out_content_type" == *"application/json"* ]]; then
             c_asset=$c_asset_not_bad
         else
@@ -231,24 +244,42 @@ if [[ -n "$domain" ]]; then
                 printf "$single_sub_fuzz_result\n"
             fi
         else
+            # create a var to save the current subdomain count
+            current_subdomain_count=1
             # Iterate over subdomains
             for subdomain in $subdomains; do
+                # print the number of current subdomain/All subdomains count
+                printf "[+] Running on $current_subdomain_count/$(echo $subdomains | wc -w) | $subdomain\n"
                 # Run single_sub_fuzz() on it and saveit to a var to be used later
                 single_sub_fuzz_result=$(single_sub_fuzz $domain $subdomain)
                 printf "$single_sub_fuzz_result\n"
+                # increment current_subdomain_count
+                current_subdomain_count=$((current_subdomain_count+1))
             done
         fi
     fi
 else
+    # create a var to save the current domain count
+    current_domain_count=1
     # Iterate over domains
     for domain in $domains; do
+        # print the number of current domain/All domains count
+        printf "[+] Running on $current_domain_count/$(echo $domains | wc -w) | $domain\n"
         # Get subdomains for each domain
         subdomains=$(healerdb subdomain list -db $db -t $target -d $domain -j | jq -r '.result[]')
+        # create a var to save the current subdomain count
+        current_subdomain_count=1
         # Iterate over subdomains
         for subdomain in $subdomains; do
+            # print the number of current subdomain count/ All subdomains count
+            printf "[+] Running on $current_subdomain_count/$(echo $subdomains | wc -w) | $subdomain\n"
             # Run single_sub_fuzz() on it and saveit to a var to be used later
             single_sub_fuzz_result=$(single_sub_fuzz $domain $subdomain)
             printf "$single_sub_fuzz_result\n"
+            # increment current_subdomain_count
+            current_subdomain_count=$((current_subdomain_count+1))
         done
+        # increment current_domain_count
+        current_domain_count=$((current_domain_count+1))
     done
 fi

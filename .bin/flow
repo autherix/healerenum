@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+
+binpath=$(dirname $0)
+
+# Define showhelp function
+showhelp() {
+    echo -e "\033[33mUsage:\033[0m $0 [OPTIONS] FLOW"
+    echo ""
+    echo -e "\033[33mOptions:\033[0m"
+    echo -e "\t\033[32m-db, --database DATABASE\033[0m\tSpecify the database to use (default: enum)"
+    echo -e "\t\033[32m-t, --target TARGET\033[0m\tSpecify the target to enumerate"
+    echo -e "\t\033[32m-d, --domain DOMAIN\033[0m\tSpecify the domain to enumerate"
+    echo -e "\t\033[32m-sub, --subdomain SUBDOMAIN\033[0m\tSpecify the subdomain to enumerate"
+    echo -e "\t\033[32m-h, --help\033[0m\tShow this help message and exit"
+    echo ""SS
+    echo -e "\033[33mAvailable flows:\033[0m"
+        echo -e "\t\033[32m$(ls -1 ${binpath}/flow-* | sed "s#${binpath}/flow-##" | sed ':a;N;$!ba;s/\n/, /g')\033[0m"
+    }
+
+if [ -z "$1" ]; then
+    echo -e "\033[31mError:\033[0m Missing argument. Please provide a value for flow."
+    showhelp
+    exit 1
+else
+    flow=$1
+fi
+
+# Check if flow is a valid flow
+if [ -z "$(ls -1 ${binpath}/flow-* 2>/dev/null)" ]; then
+    echo -e "\033[31mError:\033[0m No flows found in ${binpath}. Exitting..."
+    shwohelp
+    exit 1
+fi
+
+valid_flows=$(ls -1 ${binpath}/flow-* | sed "s#${binpath}/flow-##")
+
+if [ -z "$(echo ${valid_flows} | grep -w ${flow})" ]; then
+    printf "\033[31mError:\033[0m Invalid flow. Valid flows are: "
+    printf "\033[32m%s\033[0m, " $(echo ${valid_flows} | sed 's/ /\'$'\n/g' | while read flow; do tput setaf 2; echo -n "$flow "; tput sgr0; done)
+    echo ""
+    showhelp
+    exit 1
+fi
+
+# shift argument
+shift
+
+# Run flow with arguments
+${binpath}/flow-${flow} $@

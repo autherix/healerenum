@@ -11,25 +11,28 @@ echo "Domains count: $(printf "%s " "${domains[@]}" | wc -w)"
 
 # Loop through the domains array and run the following command to get the list of all subdomains, then append to allsub array
 allsub=""
+allurls=""
 for domain in $domains; do
     printf "Domain: %s \n" "$domain"
     sub=$(healerdb subdomain list -db $db -t $target -d $domain -j | jq -r '.result[]')
     # Append all members of sub array to allsub array
-    allsub=$(printf "%s " "${sub[@]}" "${allsub[@]}" | sed 's/ $//' | sort -u)
+    # allsub=$(printf "%s " "${sub[@]}" "${allsub[@]}" | sed 's/ $//' | sort -u)
+    
+    # 
 done
 printf "\n--------------------------------------------\n"
-printf "all subs count: %s " "$(printf "%s " "${allsub[@]}" | wc -w)"
+# printf "all subs count: %s " "$(printf "%s " "${allsub[@]}" | wc -w)"
 # wait 2 seconds
 # sleep 2
 # printf "%s " "${allsub[@]}"
 
 # seperator
 printf "\n--------------------------------------------\n"
-printf "Processing allsub_httpx...\n"
+# printf "Processing allsub_httpx...\n"
 
 # Do httpx on allsub and save to a var
-allsub_httpx=$(printf "%s " "${allsub[@]}" | httpx -mc 200,301 -silent)
-echo "allsub_httpx count: $(printf "%s " "${allsub_httpx[@]}" | wc -w)"
+# allsub_httpx=$(printf "%s " "${allsub[@]}" | httpx -mc 200,301 -silent)
+# echo "allsub_httpx count: $(printf "%s " "${allsub_httpx[@]}" | wc -w)"
 
 # allsub_httpx="https://brutelogic.com.br"
 
