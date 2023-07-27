@@ -108,6 +108,8 @@ fi
 # function single_sub_fuzz() to run single_sub_fuzz on a single subdomain
 single_sub_fuzz() {
     
+    printf "___________________________________________________________________________\n\n"
+
     # Run httpx on the current subdomain to make sure it's up and running, and to build an asset out of the subdomain and save it to a var to be used later
     fuzz_db=$db
     fuzz_target=$target
@@ -115,25 +117,36 @@ single_sub_fuzz() {
     fuzz_subdomain=$2
     fuzz_wordlist=$wordlist
     # c_asset=$(httpx -silent -no-color -no-fallback -no-status -no-title -no-websocket -threads 1 -timeout 10 -ports 80,443 -content-length -follow-redirects -l $2 | tee /dev/tty)
+
+    # run httpx -u $fuzz_subdomain -silent, if result is empty, return
+    if [[ -z "$(httpx -u $fuzz_subdomain -silent)" ]]; then
+        printf "[-] Host is not up: \033[0;33m$fuzz_subdomain\033[0m\n"
+        return
+    fi
     
     # Run httpx on it and save it to a var to be used later
-    c_asset=$(httpx -u $fuzz_subdomain -mc 200 -no-color -silent) # -fr
+    printf "Running httpx on $fuzz_subdomain\n"
+    c_asset=$(httpx -u $fuzz_subdomain -mc 200,301 -no-color -silent) # -fr
 
+    printf "Running httpx on $fuzz_subdomain -> no status code filter\n"
     c_asset_not_bad=$(httpx -u $fuzz_subdomain -no-color -silent) 
 
     # find the last url in the output
     c_asset=$(echo $c_asset | grep -Eo "(http|https)://[a-zA-Z0-9./?=_-]*" | tail -n 1)
+    printf "Last url in the output: $c_asset\n"
 
     # If c_asset is empty, return
     if [[ -z "$c_asset" ]]; then
+        printf "c_asset is empty, checking if $fuzz_subdomain is up\n"
         # send a curl request to $ fuzz_subdomain, if the response header Content type is text/plain, set c_asset to $c_asset_not_bad, else return
         curl_out_content_type=$(curl -s -I $fuzz_subdomain -L | grep "content-type: " | awk '{print $2}')
         # print c_asset is empty , then print the curl_out_content_type
-        printf "[-] No valid urls found for $2\ncurl output content type: $curl_out_content_type\n"
+        printf "[i] curl output content type: $curl_out_content_type\n"
         if [[ "$curl_out_content_type" == *"text/plain"* ]] || [[ "$curl_out_content_type" == *"text/xml"* ]] || [[ "$curl_out_content_type" == *"application/xml"* ]] || [[ "$curl_out_content_type" == *"application/json"* ]]; then
+            printf "special content type found, setting c_asset to $c_asset_not_bad\n"
             c_asset=$c_asset_not_bad
         else
-            printf "[-] No valid urls found for $2\n"
+            printf "[-] No valid urls found for $2\n -> c_asset is empty\n -> curl output content type: $curl_out_content_type\n"
             return
         fi
     fi
@@ -144,19 +157,27 @@ single_sub_fuzz() {
     fi
 
     # Send a curl request to c_asset without fetching body, to get the status code and redirect url
+    printf "sending curl request to $c_asset without fetching body, to get the status code and redirect url\n"
     curl_out=$(curl -s -o /dev/null -w "%{http_code} %{redirect_url}" $c_asset)
     curl_out_status_code=$(echo $curl_out | awk '{print $1}')
     curl_out_redirect_url=$(echo $curl_out | awk '{print $2}')
-    # if status code is not 200 AND redirect url is not starting with c_asset AND redirect url is not empty, return
-    if [[ "$curl_out_status_code" != "200" ]] && [[ ! "$curl_out_redirect_url" =~ ^"$c_asset" ]] && [[ -n "$curl_out_redirect_url" ]]; then
-        printf "[-] $c_asset is not up or it's redirecting to a different subdomain\nCurrent Subdomain: $fuzz_subdomain\nRedirect URL: $curl_out_redirect_url\nCurrent Asset: $c_asset\n"
-        return
-    else
-        printf "Running ffuf on $c_asset\n"
+    # if status code is 301, get the redirect url, and save it on c_asset
+    if [[ "$curl_out_status_code" == "301" ]]; then
+        c_asset=$curl_out_redirect_url
+        printf "[+] $c_asset is redirecting to $curl_out_redirect_url\n"
     fi
+    # if status code is not 200 AND redirect url is not starting with c_asset AND redirect url is not empty, return
+    # if [[ "$curl_out_status_code" != "200" ]] && [[ ! "$curl_out_redirect_url" =~ ^"$c_asset" ]] && [[ -n "$curl_out_redirect_url" ]]; then
+    #     printf "[-] $c_asset is not up or it's redirecting to a different subdomain\nCurrent Subdomain: $fuzz_subdomain\nRedirect URL: $curl_out_redirect_url\nCurrent Asset: $c_asset\n"
+    #     return
+    # fi
 
+    printf "Finally set c_asset to $c_asset\n"
+
+    printf "Running ffuf on $c_asset\n"
     # Run ffuf on it
-    ffuf -u "$c_asset"FUZZ -w $fuzz_wordlist -recursion -recursion-depth 1 -recursion-strategy "greedy" -json -o /tmp/ffuf_out_$fuzz_subdomain.json -H "User-Agent: Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)" -mc 200 -timeout 10 -s  > /dev/null 2>&1 # -ac -r -s
+    ffuf -u "$c_asset"FUZZ -w $fuzz_wordlist -recursion -recursion-depth 1 -recursion-strategy "greedy" -json -o /tmp/ffuf_out_$fuzz_subdomain.json -H "User-Agent: Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)" -mc 200 -timeout 10  # -s #  > /dev/null 2>&1 # -ac -r -s
+    # ffuf -u https://apix.developer.vodafone.om/FUZZ -w /lst/dir/raft-medium-directories-lowercase.txt -recursion -recursion-depth 1 -recursion-strategy "greedy" -H "User-Agent: Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)" -timeout 10  # -s #  > /dev/null 2>&1 # -ac -r -s
 
     # # Wait until ffuf and its subprocesses finish
     # wait $(jobs -p) 
@@ -264,9 +285,36 @@ else
     # Iterate over domains
     for domain in $domains; do
         # print the number of current domain/All domains count
-        printf "[+] Running on $current_domain_count/$(echo $domains | wc -w) | $domain\n"
+        printf "[+] Running on $current_domain_count/$(echo $domains | wc -w) Domain... | $domain\n"
+        # increment current_domain_count
+        current_domain_count=$((current_domain_count+1))
         # Get subdomains for each domain
         subdomains=$(healerdb subdomain list -db $db -t $target -d $domain -j | jq -r '.result[]')
+        # if subdomains is empty, continue
+        if [[ -z "$subdomains" ]]; then
+            printf "[-] No subdomains found for $domain\n"
+            continue
+        fi
+        # save subdomains to a file, each subdomain in a new line
+        echo "" > /tmp/subdomains.txt
+        for subdomain in $subdomains; do
+            echo $subdomain >> /tmp/subdomains.txt
+        done
+        # print the number of subdomains
+        printf "[+] In total found $(echo $subdomains | wc -w) subdomains for $domain\n"
+        # run httpx to filter out the down subdomains 
+        httpx -follow-redirects -l /tmp/subdomains.txt -nc -silent
+        subdomains=$(httpx -l /tmp/subdomains.txt -nc -silent)
+        printf "subdomains after filtering: $subdomains\n"
+        # remove the file
+        rm /tmp/subdomains.txt
+        # if subdomains is empty, continue
+        if [[ -z "$subdomains" ]]; then
+            printf "[-] No subdomain is up for $domain\n"
+            continue
+        fi
+        # print the number of subdomains after filtering
+        printf "[+] Found $(echo $subdomains | wc -w) subdomains for $domain\n"
         # create a var to save the current subdomain count
         current_subdomain_count=1
         # Iterate over subdomains
@@ -279,7 +327,5 @@ else
             # increment current_subdomain_count
             current_subdomain_count=$((current_subdomain_count+1))
         done
-        # increment current_domain_count
-        current_domain_count=$((current_domain_count+1))
     done
 fi

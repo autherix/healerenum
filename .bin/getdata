@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+
+binpath=$(dirname $0)
+
+get_h1_handles() {
+    h1_handles=$(healerdb h1_targetinfo list -db bbplats -coll h1 -j | jq -r '.result[]')
+}
+
+get_bc_handles() {
+    bc_handles=$(healerdb bc_targetinfo list -db bbplats -coll bc -j | jq -r '.result[]')
+}
+
+# Get handles of h1 and bc targets, merge them together
+handles=$(get_h1_handles; get_bc_handles; echo $h1_handles $bc_handles | tr ' ' '\n' | sort -u)
+
+DB_NAME="enum"
+
+# Define function to get all domains of all targets
+get_all_domains() {
+    for handle in $handles; do
+        domains=$(healerdb domain list -db $DB_NAME -t $handle -j | jq -r '.result[]')
+        echo "$domains"
+    done
+}
+
+# Define function to get all subdomains of all domains of all targets
+get_all_subdomains() {
+    for handle in $handles; do
+        domains=$(healerdb domain list -db $DB_NAME -t $handle -j | jq -r '.result[]')
+        for domain in $domains; do
+            subdomains=$(healerdb subdomain list -db $DB_NAME -t $handle -d $domain -j | jq -r '.result[]')
+            echo "$subdomains"
+        done
+    done
+}
+
+# Define function to get all urls of all subdomains of all domains of all targets
+get_all_urls() {
+    for handle in $handles; do
+        domains=$(healerdb domain list -db $DB_NAME -t $handle -j | jq -r '.result[]')
+        for domain in $domains; do
+            subdomains=$(healerdb subdomain list -db $DB_NAME -t $handle -d $domain -j | jq -r '.result[]')
+            for subdomain in $subdomains; do
+                urls=$(healerdb url list -db $DB_NAME -t $handle -d $domain -sub $subdomain -j | jq -r '.result[]')
+                echo "$urls"
+            done
+        done
+    done
+}
+
+# Define function to get all directories of all subdomains of all domains of all targets
+get_all_directories() {
+    for handle in $handles; do
+        domains=$(healerdb domain list -db $DB_NAME -t $handle -j | jq -r '.result[]')
+        for domain in $domains; do
+            subdomains=$(healerdb subdomain list -db $DB_NAME -t $handle -d $domain -j | jq -r '.result[]')
+            for subdomain in $subdomains; do
+                    directories=$(healerdb directory list -db $DB_NAME -t $handle -d $domain -sub $subdomain -j | jq -r '.result[]')
+                    echo "$directories"
+            done
+        done
+    done
+}
+
+# List of valid options
+valid_options=("domain" "sub" "subdomain" "url" "dir" "directory" "param" "parameter")
+
+# Check if $1 is in the list of valid options
+if [[ ! " ${valid_options[@]} " =~ " ${1} " ]]; then
+    echo "Error: Invalid option. Valid options are: ${valid_options[*]}"
+    exit 1
+fi
+
+# if $1 is "domain", get all domains of all targets
+if [[ $1 == "domain" ]]; then
+    get_all_domains
+elif [[ $1 == "sub" || $1 == "subdomain" ]]; then
+    get_all_subdomains
+elif [[ $1 == "url" ]]; then
+    get_all_urls
+elif [[ $1 == "dir" || $1 == "directory" ]]; then
+    get_all_directories
+elif [[ $1 == "param" || $1 == "parameter" ]]; then
+    echo "Not implemented yet"
+fi
+
+exit 0 

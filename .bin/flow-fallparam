@@ -1,0 +1,274 @@
+#!/usr/bin/env bash
+
+Usage() {
+    printf "%0.s=" $(seq 1 $(($(tput cols))))
+    printf "\n"
+    printf "\e[1m\e[35mUsage:\e[0m\e[0m $0 [\e[32mOPTIONS\e[0m] [\e[32mARGS\e[0m]\n"
+    printf "\e[1m\e[35mOptions:\e[0m\e[0m\n"
+    printf "\t\e[32m-h, --help\e[0m\t\t\tShow this help message and exit\n"
+    printf "\t\e[32m-db, --database\e[0m\t\tDatabase name to use, default is enum\n"
+    printf "\t\e[32m-t, --target\e[0m\t\tTarget name to use, required\n"
+    printf "\t\e[32m-d, --domain\e[0m\t\tDomain name to use, optional\n"
+    printf "\t\e[32m-sub, --subdomain\e[0m\t\tSubdomain name to use, optional\n"
+    printf "\t\e[32m-w, --wordlist\e[0m\t\tWordlist to use, default is /lst/dir/raft-small-directories-lowercase.txt\n"
+    printf "\t\e[32m--threads\e[0m\t\t\tNumber of threads to use, default is 100\n"
+    printf "\t\e[32m--args\e[0m\t\t\tPass remaining args to single_sub_fuzz\n"
+    printf "\e[1m\e[35mArgs:\e[0m\e[0m\n"
+    printf "\t\e[32mARGS\e[0m\t\t\t\tArguments to pass to single_sub_fuzz\n"
+    printf "\e[1m\e[35mExamples:\e[0m\e[0m\n"
+    printf "\t$0 -t target1\n"
+    printf "\t$0 -t target1 -d domain1\n"
+    printf "\t$0 -t target1 -d domain1 -sub subdomain1\n"
+    printf "\t$0 -t target1 -d domain1 -sub subdomain1 --args -w /path/to/wordlist.txt -t 100\n"
+    printf "\t$0 -t target1 -d domain1 -sub subdomain1 --args -w /path/to/wordlist.txt -t 100 -o /path/to/output.txt\n"
+    printf "%0.s=" $(seq 1 $(($(tput cols))))
+    printf "\n"
+}
+
+db="enum"
+target=""
+domain=""
+subdomain=""
+threads=100
+# wordlist="/lst/dir/fixed_ffuf_test-200.txt"
+wordlist="/lst/param/burp-parameter-names.txt"
+waf_wordlist="/lst/param/burp-parameter-names.txt"
+# wordlist="/lst/dir/fixed_ffuf_dirsearch.txt"
+POSITIONAL=()
+
+while [[ $# -gt 0 ]]; do
+    key="$1"
+    case $key in
+        -h|--help)
+            Usage
+            exit 0
+            ;;
+        # db is optional, if it's not specified, it will be set to enum as default
+        -db|--database)
+            db="$2"
+            shift
+            shift
+            ;;
+        -t|--target)
+            target="$2"
+            shift
+            shift
+            ;;
+        -d|--domain)
+            domain="$2"
+            shift
+            shift
+            ;;
+        -w|--wordlist)
+            wordlist="$2"
+            shift
+            shift
+            ;;
+        -sub|--subdomain)
+            subdomain="$2"
+            shift
+            shift
+            ;;
+        --threads)
+            threads="$2"
+            shift
+            shift
+            ;;
+        --args)
+            # Add remaining args to POSITIONAL until end of args or next flag(starting with -)
+            while [[ $# -gt 0 ]]; do
+                key="$1"
+                if [[ $key == -* ]]; then
+                    break
+                fi
+                POSITIONAL+=("$1")
+                shift
+            done
+            break
+            ;;
+        *)
+            echo "Unknown option: $key"
+            Usage
+            exit 1
+            ;;
+    esac
+done
+
+set -- "${POSITIONAL[@]}" # restore positional parameters -what does this do? - it sets the positional parameters to the value of the array
+
+if [[ -z "$db" ]]; then
+    db="enum"
+fi
+
+if [[ -z "$target" ]]; then
+    echo "Target not specified, Exiting"
+    Usage
+    exit 1
+fi
+
+# Get domain list fron healerdb
+domains=$(healerdb domain list -db $db -t $target -j | jq -r '.result[]')
+
+# print the number of domains
+printf "[+] Found $(echo $domains | wc -w) domains for target $target\n"
+
+# If it's empty, exit with error
+if [[ -z "$domains" ]]; then
+    echo "No domains found for target $target, Exiting"
+    exit 1
+fi
+
+
+single_sub_fuzz() {
+
+    fuzz_db=$db
+    fuzz_target=$target
+    fuzz_domain=$1
+    fuzz_subdomain=$2
+
+
+
+    # If fuzz_domain is empty, exit with error
+    if [[ -z "$fuzz_domain" ]]; then
+        echo "Domain not specified, Exiting"
+        Usage
+        exit 1
+    fi
+    
+    # If fuzz_subdomain is empty, exit with error
+    if [[ -z "$fuzz_subdomain" ]]; then
+        echo "Subdomain not specified, Exiting"
+        Usage
+        exit 1
+    fi
+
+    # If fuzz_wordlist is empty, exit with error
+    if [[ -z "$fuzz_wordlist" ]]; then
+        echo "Wordlist not specified, Exiting"
+        Usage
+        exit 1
+    fi
+
+    # If fuzz_db is empty, exit with error
+    if [[ -z "$fuzz_db" ]]; then
+        echo "Database not specified, Exiting"
+        Usage
+        exit 1
+    fi
+
+    # If fuzz_target is empty, exit with error
+    if [[ -z "$fuzz_target" ]]; then
+        echo "Target not specified, Exiting"
+        Usage
+        exit 1
+    fi
+
+    # Check if subdomain redirects us to another domain, if yes return with error
+    if [[ $(curl -s -L -I $fuzz_subdomain | grep -i "location" | grep -i "http" | awk '{print $2}' | grep -v "$fuzz_domain") ]]; then
+        echo "Subdomain $fuzz_subdomain redirects to another domain, Exiting"
+        exit 1
+    # else if it redirects to the same domain, set c_asset to the new url
+    elif [[ $(curl -s -L -I $fuzz_subdomain | grep -i "location" | grep -i "http" | awk '{print $2}' | grep "$fuzz_domain") ]]; then
+        c_asset=$(curl -s -L -I $fuzz_subdomain | grep -i "location" | grep -i "http" | awk '{print $2}')
+    # else if it doesn't redirect, set c_asset to the subdomain
+    else
+        c_asset=$fuzz_subdomain
+    fi
+
+    # remove first and last space from c_asset
+    c_asset=$(echo $c_asset | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    # remove last slash from c_asset
+    c_asset=$(echo $c_asset | sed 's/\/$//')
+
+    
+
+
+
+
+
+}
+
+
+
+
+
+# If domain is specified, check if it's not in the list, exit with error
+if [[ -n "$domain" ]]; then
+    if [[ ! "$domains" =~ "$domain" ]]; then
+        echo "Domain $domain not found for target $target, Exiting"
+        exit 1
+    else 
+        subdomains=$(healerdb subdomain list -db $db -t $target -d $domain -j | jq -r '.result[]')
+        # If subdomain is specified, check if it's not in the list, exit with error
+        if [[ -n "$subdomain" ]]; then
+            if [[ ! "$subdomains" =~ "$subdomain" ]]; then
+                echo "Subdomain $subdomain not found for target $target, domain $domain, Exiting"
+                exit 1
+            else
+                # Run single_sub_fuzz() on it and saveit to a var to be used later
+                single_sub_fuzz_result=$(single_sub_fuzz $domain $subdomain)
+                printf "$single_sub_fuzz_result\n"
+            fi
+        else
+            # create a var to save the current subdomain count
+            current_subdomain_count=1
+            # Iterate over subdomains
+            for subdomain in $subdomains; do
+                # print the number of current subdomain/All subdomains count
+                printf "[+] Running on $current_subdomain_count/$(echo $subdomains | wc -w) | $subdomain\n"
+                # Run single_sub_fuzz() on it and saveit to a var to be used later
+                single_sub_fuzz_result=$(single_sub_fuzz $domain $subdomain)
+                printf "$single_sub_fuzz_result\n"
+                # increment current_subdomain_count
+                current_subdomain_count=$((current_subdomain_count+1))
+            done
+        fi
+    fi
+else
+    # create a var to save the current domain count
+    current_domain_count=1
+    # Iterate over domains
+    for domain in $domains; do
+        # print the number of current domain/All domains count
+        printf "[+] Running on $current_domain_count/$(echo $domains | wc -w) Domain... | $domain\n"
+        # increment current_domain_count
+        current_domain_count=$((current_domain_count+1))
+        # Get subdomains for each domain
+        subdomains=$(healerdb subdomain list -db $db -t $target -d $domain -j | jq -r '.result[]')
+        # if subdomains is empty, continue
+        if [[ -z "$subdomains" ]]; then
+            printf "[-] No subdomains found for $domain\n"
+            continue
+        fi
+        # save subdomains to a file, each subdomain in a new line
+        echo "" > /tmp/subdomains.txt
+        for subdomain in $subdomains; do
+            echo $subdomain >> /tmp/subdomains.txt
+        done
+        # print the number of subdomains
+        printf "[+] In total found $(echo $subdomains | wc -w) subdomains for $domain\n"
+        # run httpx to filter out the down subdomains 
+        subdomains=$(httpx -l /tmp/subdomains.txt -nc -silent)
+        # remove the file
+        rm /tmp/subdomains.txt
+        # if subdomains is empty, continue
+        if [[ -z "$subdomains" ]]; then
+            printf "[-] No subdomain is up for $domain\n"
+            continue
+        fi
+        # print the number of subdomains after filtering
+        printf "[+] Found $(echo $subdomains | wc -w) UP subdomains for $domain\n"
+        # create a var to save the current subdomain count
+        current_subdomain_count=1
+        # Iterate over subdomains
+        for subdomain in $subdomains; do
+            # print the number of current subdomain count/ All subdomains count
+            printf "[+] Running on $current_subdomain_count/$(echo $subdomains | wc -w) | $subdomain\n"
+            # Run single_sub_fuzz() on it and saveit to a var to be used later
+            single_sub_fuzz_result=$(single_sub_fuzz $domain $subdomain)
+            printf "$single_sub_fuzz_result\n"
+            # increment current_subdomain_count
+            current_subdomain_count=$((current_subdomain_count+1))
+        done
+    done
+fi
