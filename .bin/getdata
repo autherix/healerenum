@@ -82,6 +82,9 @@ elif [[ $1 == "dir" || $1 == "directory" ]]; then
     get_all_directories
 elif [[ $1 == "param" || $1 == "parameter" ]]; then
     echo "Not implemented yet"
+else 
+    echo "Error: Invalid option. Valid options are: ${valid_options[*]}"
+    exit 1
 fi
 
 exit 0 
